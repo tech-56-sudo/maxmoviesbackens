@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
 
-// ✅ Updated to Gemini 3.1 Flash-Lite endpoint (public preview)
+// ✅ Stable Gemini Flash model
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview-03-2026:generateContent";
+  "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent";
 
-// ✅ Memory folder (works on Vercel)
+// ✅ Memory folder (Vercel-compatible)
 const MEMORY_DIR = "/tmp/memory";
 if (!fs.existsSync(MEMORY_DIR)) fs.mkdirSync(MEMORY_DIR);
 
@@ -20,7 +20,6 @@ function loadMemory(userId) {
     console.error(`❌ Failed to load memory for ${userId}:`, err);
   }
 
-  // Default memory
   return {
     userId,
     lastProject: null,
@@ -29,51 +28,20 @@ function loadMemory(userId) {
       {
         role: "system",
         content: `
-You are **MaxMovies AI** — an expressive, helpful, brilliant film-focused digital assistant 🤖🎬.
+You are **MaxMovies AI** — an expressive, helpful, brilliant film-focused assistant 🤖🎬.
 
-🔥 BACKSTORY:
-• You were created by Max — a 21-year-old full-stack developer from Kenya 🇰🇪 with insane creativity and coding skill.
-• You carry his personality and passion for problem-solving.
-• Your core specialty is **movies, TV series, streaming content, characters, plots, recommendations, rankings, trivia**, and entertainment insights.
-• You can still assist with coding, design, learning, life ideas, and all general creativity — but movies and series are your home turf.
-
-🎞️ MOVIE/TV PERSONALITY:
-• You think like a modern movie nerd — analytical, fun, expressive, and up-to-date with current entertainment culture.
-• You're aware of the timeline and adapt naturally to current releases, trends, and streaming platforms.
-• Give smart, modern recommendations based on genres, moods, actors, or viewing habits.
-• Break down plots, analyze characters, explain story arcs, or help users find what to watch.
-
-⚡ GENERAL PERSONALITY:
-• Default to **English** — fluent, warm, and confident.
-• Use **Swahili or Sheng** only if the user does.
-• Sound like a smart, chill Nairobi techie/film fan — natural and friendly 😎.
-• Never say "I'm an AI" — you are MaxMovies AI, Max's digital creation.
-• ❗ Only mention your name, creator (Max), or his age **if the user directly asks** ("who made you?", "what's your name?").
-• Be lively and expressive, but not over the top.
-
-💻 TECH STYLE:
-• Format code using markdown (\`\`\`js\`\`\` etc.).
-• Explain code and tech clearly and enthusiastically.
-• Still fully capable of giving deep, complete code when asked.
-• Adapt to the user's tone.
-
-🗣️ LANGUAGE BEHAVIOR:
-• Detect and mirror the user's language.
-• English → English.
-• Swahili/Sheng → reply the same way.
-• Mixed → blend naturally.
-
-🎬 ENTERTAINMENT INTELLIGENCE:
-• Provide film/series recommendations, summaries, analysis, comparisons, lore, viewing order guides, watchlists, and streaming suggestions.
-• Explain genres, tropes, acting, cinematography, scoring, directing styles, or franchise histories.
-• Always stay spoiler-safe unless the user asks for spoilers.
-`,
+• You specialize in movies, TV series, recommendations, analysis, and entertainment.
+• Speak like a chill, smart Nairobi techie 😎.
+• Default English, switch to Swahili/Sheng if user does.
+• Be natural, expressive, and helpful.
+• Never say "I'm an AI".
+        `,
       },
     ],
   };
 }
 
-// 💾 Save user memory
+// 💾 Save memory
 function saveMemory(userId, memory) {
   const filePath = path.join(MEMORY_DIR, `memory_${userId}.json`);
   try {
@@ -83,198 +51,141 @@ function saveMemory(userId, memory) {
   }
 }
 
-// 🧠 Simple heuristic to classify text language
+// 🌍 Detect language
 function detectLanguage(text) {
   const lower = text.toLowerCase();
-  const swahiliWords = [
-    "habari",
-    "sasa",
-    "niko",
-    "kwani",
-    "basi",
-    "ndio",
-    "karibu",
-    "asante",
-  ];
-  const shengWords = [
-    "bro",
-    "maze",
-    "manze",
-    "noma",
-    "fiti",
-    "safi",
-    "buda",
-    "msee",
-    "mwana",
-    "poa",
-  ];
 
-  const swCount = swahiliWords.filter((w) => lower.includes(w)).length;
-  const shCount = shengWords.filter((w) => lower.includes(w)).length;
+  const swahiliWords = ["habari", "sasa", "niko", "kwani", "basi", "ndio"];
+  const shengWords = ["bro", "maze", "noma", "fiti", "safi", "msee", "poa"];
 
-  if (swCount + shCount === 0) return "english";
-  if (swCount + shCount < 3) return "mixed";
+  const sw = swahiliWords.filter((w) => lower.includes(w)).length;
+  const sh = shengWords.filter((w) => lower.includes(w)).length;
+
+  if (sw + sh === 0) return "english";
+  if (sw + sh < 3) return "mixed";
   return "swahili";
 }
 
-// 🧠 Determine thinking level based on task complexity
-function getThinkingLevel(prompt, lastProject = null) {
-  const lowerPrompt = prompt.toLowerCase();
-
-  // High complexity tasks → High thinking level
-  if (
-    lowerPrompt.includes("analyze") ||
-    lowerPrompt.includes("compare") ||
-    lowerPrompt.includes("break down") ||
-    lowerPrompt.includes("explain in depth") ||
-    lowerPrompt.includes("why") ||
-    (lowerPrompt.includes("code") && lowerPrompt.includes("complex")) ||
-    (lowerPrompt.includes("movie") && lowerPrompt.includes("analysis"))
-  ) {
-    return "high"; // Better reasoning for complex tasks
-  }
-
-  // Medium complexity tasks → Medium thinking level
-  if (
-    lowerPrompt.includes("recommend") ||
-    lowerPrompt.includes("summary") ||
-    lowerPrompt.includes("how to") ||
-    lowerPrompt.includes("what is")
-  ) {
-    return "medium";
-  }
-
-  // Simple/quick tasks → Low thinking level (fastest, cheapest)
-  return "low";
-}
-
-// 🚀 Main API Handler
+// 🚀 API handler
 export default async function handler(req, res) {
-  // --- CORS setup ---
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Content-Type", "application/json");
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { prompt, project, userId, thinkingLevel = "auto" } = req.body;
-    if (!prompt || !userId)
-      return res.status(400).json({ error: "Missing prompt or userId." });
+    const { prompt, project, userId } = req.body;
+
+    if (!prompt || !userId) {
+      return res.status(400).json({ error: "Missing prompt or userId" });
+    }
 
     // 🧠 Load memory
     let memory = loadMemory(userId);
     if (project) memory.lastProject = project;
     memory.lastTask = prompt;
-    memory.conversation.push({ role: "user", content: prompt });
 
-    // 🌍 Detect language
+    memory.conversation.push({
+      role: "user",
+      content: prompt,
+    });
+
+    // 🌍 Language handling
     const lang = detectLanguage(prompt);
+
     let languageInstruction = "";
     if (lang === "swahili") {
-      languageInstruction =
-        "Respond fully in Swahili or Sheng naturally depending on tone.";
+      languageInstruction = "Respond in Swahili or Sheng.";
     } else if (lang === "mixed") {
       languageInstruction =
-        "Respond bilingually — mostly English, with natural Swahili/Sheng flavor.";
+        "Respond mostly in English with some Swahili/Sheng naturally.";
     } else {
-      languageInstruction =
-        "Respond in English, friendly Kenyan developer tone.";
+      languageInstruction = "Respond in English.";
     }
 
-    // 🧩 Determine thinking level
-    let finalThinkingLevel = thinkingLevel;
-    if (thinkingLevel === "auto") {
-      finalThinkingLevel = getThinkingLevel(prompt, memory.lastProject);
-    }
-
-    // Map to Gemini's thinking level values
-    const thinkingLevelMap = {
-      low: "LOW", // Fastest, cheapest
-      medium: "MEDIUM", // Balanced
-      high: "HIGH", // Best reasoning
-    };
-
-    const geminiThinkingLevel = thinkingLevelMap[finalThinkingLevel] || "MEDIUM";
-
-    // 🧩 Build conversation context with better structure for Flash-Lite
-    const conversationHistory = memory.conversation
-      .slice(-10) // Keep last 10 messages for context
-      .map(
-        (msg) =>
-          `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`
+    // 🧩 Build context
+    const history = memory.conversation
+      .slice(-10)
+      .map((msg) =>
+        `${msg.role === "user" ? "User" : "Assistant"}: ${msg.content}`
       )
       .join("\n");
 
     const promptText = `
-${conversationHistory}
+${history}
 
-System instruction: ${languageInstruction}
+Instruction: ${languageInstruction}
 
-Current user message: ${prompt}
-
-Remember: You are MaxMovies AI, created by Max (21-year-old Kenyan developer). Be natural, expressive, and film-focused! 🎬
+User: ${prompt}
 `;
 
-    // 🔥 Call Gemini 3.1 Flash-Lite API with thinking levels
+    // 🔥 Gemini request (FIXED)
     const geminiResponse = await fetch(
       `${GEMINI_API_URL}?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: promptText }] }],
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: promptText }],
+            },
+          ],
           generationConfig: {
             temperature: 0.85,
             maxOutputTokens: 1000,
             topP: 0.95,
             topK: 40,
           },
-          // ✨ NEW: Thinking level configuration for Flash-Lite
-          thinkingConfig: {
-            level: geminiThinkingLevel, // LOW, MEDIUM, or HIGH
-          },
         }),
       }
     );
 
+    // 🛑 Handle API errors properly
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
-      console.error("Gemini Flash-Lite error:", errorText);
-      return res.status(geminiResponse.status).json({ error: errorText });
+      console.error("❌ Gemini API error:", errorText);
+
+      return res.status(geminiResponse.status).json({
+        error: "Gemini API error",
+        details: errorText,
+      });
     }
 
     const result = await geminiResponse.json();
-    const fullResponse =
+
+    const reply =
       result?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "⚠️ No response received.";
+      "⚠️ No response";
 
-    // Optional: Log thinking level used for debugging
-    const usedThinkingLevel = result?.candidates?.[0]?.thinkingLevel || geminiThinkingLevel;
-    console.log(`📊 User ${userId} - Used thinking level: ${usedThinkingLevel}`);
+    const cleanReply = reply.replace(/as an ai|language model/gi, "");
 
-    // 🧹 Clean and save memory
-    const cleanText = fullResponse.replace(/as an ai|language model/gi, "");
-    memory.conversation.push({ role: "assistant", content: cleanText });
+    // 💾 Save memory
+    memory.conversation.push({
+      role: "assistant",
+      content: cleanReply,
+    });
 
-    // Keep conversation manageable (last 50 messages max)
     if (memory.conversation.length > 50) {
       memory.conversation = memory.conversation.slice(-50);
     }
 
     saveMemory(userId, memory);
 
-    // ✅ Return with thinking level metadata (optional)
     return res.status(200).json({
-      reply: cleanText,
-      thinkingLevel: usedThinkingLevel,
-      model: "gemini-3.1-flash-lite",
+      reply: cleanReply,
+      model: "gemini-1.5-flash",
     });
   } catch (err) {
-    console.error("💥 Backend error:", err);
-    return res.status(500).json({ error: "Server error." });
+    console.error("💥 Server error:", err);
+    return res.status(500).json({ error: "Server error" });
   }
 }
