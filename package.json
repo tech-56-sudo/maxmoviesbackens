@@ -1,15 +1,8 @@
 {
   "name": "maxmovies-api",
   "version": "1.0.0",
-  "description": "MaxMovies AI API with Gemini Flash-Lite",
   "type": "module",
-  "scripts": {
-    "dev": "vercel dev",
-    "deploy": "vercel deploy --prod"
-  },
-  "dependencies": {},
-  "devDependencies": {},
-  "engines": {
-    "node": "18.x"
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
   }
 }
